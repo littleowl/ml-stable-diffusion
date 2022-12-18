@@ -29,6 +29,12 @@ struct StableDiffusionSample: ParsableCommand {
         )
     )
     var resourcePath: String = "./"
+    
+    @Option(help: "Path to starting image.")
+    var image: String = "none"
+    
+    @Option(help: "Strength for image2image.")
+    var strength: Float = 1.0
 
     @Option(help: "Number of images to sample / generate")
     var imageCount: Int = 1
@@ -48,7 +54,7 @@ struct StableDiffusionSample: ParsableCommand {
     var outputPath: String = "./"
 
     @Option(help: "Random seed")
-    var seed: Int = 93
+    var seed: Int = Int(Int32.random(in: 0...Int32.max))
 
     @Option(help: "Compute units to load model with {all,cpuOnly,cpuAndGPU,cpuAndNeuralEngine}")
     var computeUnits: ComputeUnits = .all
@@ -78,6 +84,32 @@ struct StableDiffusionSample: ParsableCommand {
                                                    disableSafety: disableSafety,
                                                    reduceMemory: reduceMemory)
         try pipeline.loadResources()
+        
+        let startingImage: CGImage?
+        if image != "none" {
+            let imageURL = URL(filePath: image)
+//            if FileManager.default.fileExists(atPath: imageURL.path()) {
+//                throw RunError.resources("Starting image not found \(imageURL)")
+//            }
+            do {
+                let imageData = try Data(contentsOf: imageURL)
+                guard
+                    let imgDataProvider = CGDataProvider(data: imageData as CFData),
+                    let loadedImage = CGImage(
+                        pngDataProviderSource: imgDataProvider,
+                        decode: nil, shouldInterpolate: false,
+                        intent: CGColorRenderingIntent.defaultIntent)
+                else {
+                    throw RunError.resources("Starting Image not available \(resourcePath)")
+                }
+                startingImage = loadedImage
+            } catch let error {
+                throw RunError.resources("Starting image not found \(imageURL), error: \(error)")
+            }
+            
+        } else {
+            startingImage = nil
+        }
 
         log("Sampling ...\n")
         let sampleTimer = SampleTimer()
@@ -85,6 +117,8 @@ struct StableDiffusionSample: ParsableCommand {
 
         let images = try pipeline.generateImages(
             prompt: prompt,
+            startingImage: startingImage,
+            strength: strength,
             imageCount: imageCount,
             stepCount: stepCount,
             seed: seed,
@@ -159,6 +193,10 @@ struct StableDiffusionSample: ParsableCommand {
         var name = prompt.prefix(fileCharLimit).replacingOccurrences(of: " ", with: "_")
         if imageCount != 1 {
             name += ".\(sample)"
+        }
+        
+        if image != "none" {
+            name += ".str\(Int(strength * 100))"
         }
 
         name += ".\(seed)"
